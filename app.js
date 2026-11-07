@@ -38,7 +38,7 @@ async function saveProducts(){
 async function syncProducts(showErrors=false){
  try{
   const response = await fetch("/.netlify/functions/catalog", {cache:"no-store"});
-  if(!response.ok) throw new Error("Не вдалося завантажити меню");
+  if(!response.ok) throw new Error(response.status===404 ? "Функція каталогу не опублікована Netlify. Завантажте файли через GitHub із кореня ZIP та дочекайтеся Deploy published." : "Не вдалося завантажити меню");
   const data = await response.json();
   if(Array.isArray(data.products)){
    const snapshot = JSON.stringify(data.products);
@@ -165,11 +165,22 @@ $("#adminPassword").addEventListener("keydown",e=>{if(e.key==="Enter")$("#loginA
 
 function renderAdmin(){$("#adminProducts").innerHTML=products.map(p=>`<div class="admin-product"><span><b>${safe(p.name)}</b> · ${money(p.price)}</span><span><button data-edit="${safe(p.id)}">Редагувати</button> <button class="delete" data-delete="${safe(p.id)}">Видалити</button></span></div>`).join("")||"<p class='tiny-note'>Каталог порожній.</p>"}
 
-$("#productForm").addEventListener("submit",async e=>{e.preventDefault();const f=new FormData(e.currentTarget),id=f.get("id")||"p"+Date.now(),p={id,name:f.get("name").trim(),category:f.get("category"),description:f.get("description").trim(),price:Number(f.get("price")),weight:Number(f.get("weight")),image:f.get("image").trim()};if(!p.price||!p.weight)return toast("Вкажіть коректні ціну та вагу");const previous=structuredClone(products);const index=products.findIndex(x=>x.id===id);if(index>=0)products[index]=p;else products.push(p);if(await saveProducts()){renderCategories();renderProducts();renderAdmin();e.currentTarget.reset();toast("Товар збережено для всіх клієнтів")}else products=previous});
+$("#productForm").addEventListener("submit",async e=>{e.preventDefault();const f=new FormData(e.currentTarget),id=f.get("id")||"p"+Date.now(),p={id,name:f.get("name").trim(),category:f.get("category"),description:f.get("description").trim(),price:Number(f.get("price")),weight:Number(f.get("weight")),image:window._selectedProductImage || (products.find(x=>x.id===id)?.image || DEFAULT_PRODUCTS[0].image)};if(!p.price||!p.weight)return toast("Вкажіть коректні ціну та вагу");const previous=structuredClone(products);const index=products.findIndex(x=>x.id===id);if(index>=0)products[index]=p;else products.push(p);if(await saveProducts()){renderCategories();renderProducts();renderAdmin();e.currentTarget.reset();window._selectedProductImage="";$("#imagePreview").hidden=true;toast("Товар збережено для всіх клієнтів")}else products=previous});
 
 $("#adminProducts").addEventListener("click",async e=>{const edit=e.target.closest("[data-edit]");if(edit){const p=products.find(x=>x.id===edit.dataset.edit),form=$("#productForm");Object.entries(p).forEach(([k,v])=>{if(form.elements[k])form.elements[k].value=v});form.scrollIntoView({behavior:"smooth",block:"center"})}const del=e.target.closest("[data-delete]");if(del&&confirm("Видалити цей товар для всіх клієнтів?")){const previous=structuredClone(products);products=products.filter(p=>p.id!==del.dataset.delete);delete cart[del.dataset.delete];if(await saveProducts()){saveCart();renderCategories();renderProducts();renderCart();renderAdmin();toast("Товар видалено для всіх клієнтів")}else products=previous}});
 
-$("#resetProductForm").onclick=()=>$("#productForm").reset();
+$("#productImageFile").addEventListener("change", async e=>{
+ const file=e.target.files?.[0]; if(!file)return;
+ if(!file.type.startsWith("image/"))return toast("Оберіть файл зображення");
+ if(file.size>12*1024*1024)return toast("Фото має бути менше 12 МБ");
+ try{
+  const dataUrl=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=reject;reader.readAsDataURL(file)});
+  const img=await new Promise((resolve,reject)=>{const image=new Image();image.onload=()=>resolve(image);image.onerror=reject;image.src=dataUrl});
+  const scale=Math.min(1,1400/Math.max(img.width,img.height));const canvas=document.createElement("canvas");canvas.width=Math.round(img.width*scale);canvas.height=Math.round(img.height*scale);canvas.getContext("2d").drawImage(img,0,0,canvas.width,canvas.height);
+  window._selectedProductImage=canvas.toDataURL("image/jpeg",0.82);$("#imagePreview").src=window._selectedProductImage;$("#imagePreview").hidden=false;toast("Фото завантажено — натисніть «Зберегти товар»")
+ }catch(err){console.error(err);toast("Не вдалося прочитати фото")}
+});
+$("#resetProductForm").onclick=()=>{$("#productForm").reset();window._selectedProductImage="";$("#imagePreview").hidden=true};
 $("#resetProducts").onclick=async()=>{if(confirm("Відновити стандартний каталог для всіх клієнтів?")){const previous=structuredClone(products);products=structuredClone(DEFAULT_PRODUCTS);if(await saveProducts()){renderCategories();renderProducts();renderAdmin();toast("Каталог відновлено")}else products=previous}};
 $("#clearProducts").onclick=async()=>{if(confirm("Видалити всі товари для всіх клієнтів?")){const previous=structuredClone(products);products=[];if(await saveProducts()){cart={};saveCart();renderCategories();renderProducts();renderCart();renderAdmin();toast("Каталог очищено для всіх клієнтів")}else products=previous}};
 $("#logoutAdmin").onclick=()=>{$("#adminPanel").hidden=true;$("#adminLogin").hidden=false;$("#adminPassword").value="";adminPasswordForApi=""};
